@@ -1,5 +1,6 @@
 package com.utolima.vehiculosdocumentosapi.repository;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -23,4 +24,13 @@ public interface VehiculoPersonaRepository extends JpaRepository<VehiculoPersona
     List<Persona> findPersonasPorEstadoConductor(@Param("estado") EstadoConductor estado);
 
     // findByVehiculoAndPersona se elimina: no hace falta, basta findById(new VehiculoPersonaId(...))
+
+ // Asociaciones vehículo-conductor cuyo conductor tiene la licencia vencida y que todavía NO están en RO.
+ // "vp.persona.fechaVigenciaLicencia" navega de la asociación a la Persona: Hibernate arma el JOIN solo.
+ // Si la fecha de licencia es NULL, la comparación "<" da falso: esos conductores no se tocan
+ // (sin fecha registrada no hay nada que vencer).
+ @Query("SELECT vp FROM VehiculoPersona vp " +
+        "WHERE vp.persona.fechaVigenciaLicencia < :fecha AND vp.estadoConductor <> :estado")
+ List<VehiculoPersona> findConLicenciaVencidaNoRestringidos(@Param("fecha") LocalDate fecha,
+                                                            @Param("estado") EstadoConductor estado);
 }
