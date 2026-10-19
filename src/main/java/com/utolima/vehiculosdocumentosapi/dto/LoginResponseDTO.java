@@ -9,4 +9,5 @@ import lombok.Setter;
 @AllArgsConstructor
 public class LoginResponseDTO {
     private String token;
+    private String apikey; // nueva: se entrega junto con el token, el usuario nunca lo escribe
 }

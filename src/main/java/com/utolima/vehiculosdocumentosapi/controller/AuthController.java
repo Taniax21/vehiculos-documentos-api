@@ -36,6 +36,6 @@ public class AuthController {
         }
 
         String token = jwtUtil.generarToken(usuario.getId().getLogin());
-        return ResponseEntity.ok(new LoginResponseDTO(token));
+        return ResponseEntity.ok(new LoginResponseDTO(token, usuario.getApikey()));
     }
 }
