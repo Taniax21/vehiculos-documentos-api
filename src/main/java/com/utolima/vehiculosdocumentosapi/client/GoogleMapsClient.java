@@ -9,12 +9,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-// Toda la comunicación con Google vive aquí. Si cambia la API (Geocoding, Find Place...), solo se toca esta clase.
+// Toda la comunicación con Google vive aquí. Si cambia la API, solo se toca esta clase y application.properties.
 @Component
 public class GoogleMapsClient {
 
@@ -23,7 +24,6 @@ public class GoogleMapsClient {
     private final String urlTemplate;
     private final String apiKey;
 
-    // Constructor manual (y no @RequiredArgsConstructor) porque necesitamos @Value en los parámetros
     public GoogleMapsClient(ObjectMapper objectMapper,
                             @Value("${google.maps.url-template}") String urlTemplate,
                             @Value("${google.maps.api-key:}") String apiKey) {
@@ -44,50 +44,86 @@ public class GoogleMapsClient {
 
     public ResultadoGeocodificacion geocodificar(String ubicacion) {
         try {
-            // {direccion} y {clave} se reemplazan por estos valores y RestClient los codifica correctamente
+            // {direccion} y {clave} se reemplazan por estos valores; Spring codifica la dirección en UTF-8
+            // (espacio -> %20, coma -> %2C, tildes -> %C3%A9...). No usar URLEncoder aquí: codificaría dos veces.
             String json = restClient.get()
                     .uri(urlTemplate, Map.of("direccion", ubicacion, "clave", apiKey))
                     .retrieve()
-                    .body(String.class); // pedimos el texto crudo y lo leemos nosotros: no dependemos de convertidores
+                    .body(String.class);
             return interpretar(json);
+        } catch (RestClientResponseException e) {
+            // Con la v4, Google rechaza con un HTTP 4xx y un JSON {"error": {...}} que explica el motivo.
+            // Ese CUERPO se puede leer sin riesgo. Lo que NUNCA se usa es e.getMessage(): trae la URL con la clave.
+            return interpretar(e.getResponseBodyAsString());
         } catch (Exception e) {
-            // IMPORTANTE: nunca e.getMessage(). Los mensajes de Spring para errores de red o HTTP
-            // incluyen la URL COMPLETA, y esa URL lleva la clave: terminaría escrita en el log.
             return ResultadoGeocodificacion.error("Falló la llamada a Google Maps (" + e.getClass().getSimpleName() + ")");
         }
     }
 
-    private ResultadoGeocodificacion interpretar(String json) throws JsonProcessingException {
-        JsonNode raiz = objectMapper.readTree(json);
-        String status = raiz.path("status").asText(""); // Google responde 200 incluso cuando rechaza: hay que leer "status"
-
-        if ("ZERO_RESULTS".equals(status)) {
-            return ResultadoGeocodificacion.sinResultados();
+    // Lee los dos formatos de respuesta: Geocoding v4 (el del profesor) y el clásico
+    private ResultadoGeocodificacion interpretar(String json) {
+        JsonNode raiz;
+        try {
+            raiz = objectMapper.readTree(json == null ? "" : json);
+        } catch (JsonProcessingException e) {
+            return ResultadoGeocodificacion.error("La respuesta de Google Maps no es un JSON válido");
         }
-        if (!"OK".equals(status)) { // REQUEST_DENIED, OVER_QUERY_LIMIT, INVALID_REQUEST, UNKNOWN_ERROR...
-            String detalle = raiz.path("error_message").asText("");
-            return ResultadoGeocodificacion.error("Google Maps respondió " + status
-                    + (detalle.isBlank() ? "" : ": " + detalle));
+        if (raiz == null || raiz.isMissingNode()) {
+            return ResultadoGeocodificacion.error("Google Maps respondió sin contenido");
         }
 
-        // Geocoding trae la lista en "results"; Find Place la trae en "candidates". Aceptamos las dos.
+        // 1) Errores del formato nuevo: {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "..."}}
+        if (raiz.has("error")) {
+            JsonNode err = raiz.get("error");
+            String estado = err.path("status").asText("ERROR");
+            // Una dirección sin coincidencias no es un fallo de la clave ni de la cuenta: es SIN_RESULTADOS.
+            // Si se tratara como ERROR, esa dirección frenaría la cola en cada vuelta (el scheduler corta ante un ERROR).
+            if ("NOT_FOUND".equals(estado)) {
+                return ResultadoGeocodificacion.sinResultados();
+            }
+            return ResultadoGeocodificacion.error("Google Maps respondió " + estado + ": "
+                    + err.path("message").asText(""));
+        }
+
+        // 2) Formato clásico: trae "status" (OK, ZERO_RESULTS, REQUEST_DENIED...). La v4 NO lo trae.
+        if (raiz.has("status")) {
+            String status = raiz.get("status").asText("");
+            if ("ZERO_RESULTS".equals(status)) {
+                return ResultadoGeocodificacion.sinResultados();
+            }
+            if (!"OK".equals(status)) {
+                String detalle = raiz.path("error_message").asText("");
+                return ResultadoGeocodificacion.error("Google Maps respondió " + status
+                        + (detalle.isBlank() ? "" : ": " + detalle));
+            }
+        }
+
+        // 3) Primer resultado: "results" (Geocoding) o "candidates" (Find Place clásico)
         JsonNode primero = primerElemento(raiz.path("results"));
         if (primero == null) {
             primero = primerElemento(raiz.path("candidates"));
         }
         if (primero == null) {
-            return ResultadoGeocodificacion.sinResultados();
+            return ResultadoGeocodificacion.sinResultados(); // v4 sin coincidencias: respuesta sin "results"
         }
 
-        JsonNode punto = primero.path("geometry").path("location");
-        if (!punto.has("lat") || !punto.has("lng")) {
+        // 4) Coordenadas: v4 -> location.latitude/longitude ; clásico -> geometry.location.lat/lng
+        JsonNode punto = primero.path("location");
+        JsonNode lat = punto.path("latitude");
+        JsonNode lng = punto.path("longitude");
+        if (!lat.isNumber() || !lng.isNumber()) {
+            punto = primero.path("geometry").path("location");
+            lat = punto.path("lat");
+            lng = punto.path("lng");
+        }
+        if (!lat.isNumber() || !lng.isNumber()) {
             return ResultadoGeocodificacion.sinResultados();
         }
 
         // La tabla es DECIMAL(10,8) y DECIMAL(11,8): se ajusta a 8 decimales
-        BigDecimal lat = punto.get("lat").decimalValue().setScale(8, RoundingMode.HALF_UP);
-        BigDecimal lng = punto.get("lng").decimalValue().setScale(8, RoundingMode.HALF_UP);
-        return ResultadoGeocodificacion.ok(lat, lng);
+        return ResultadoGeocodificacion.ok(
+                lat.decimalValue().setScale(8, RoundingMode.HALF_UP),
+                lng.decimalValue().setScale(8, RoundingMode.HALF_UP));
     }
 
     private JsonNode primerElemento(JsonNode lista) {
