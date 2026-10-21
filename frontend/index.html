@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rutas y trayectos</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+
+    <!-- VISTA 1: inicio de sesion. Se muestra mientras no haya una sesion vigente. -->
+    <section id="vista-login" class="tarjeta-login">
+        <h1>Rutas y trayectos</h1>
+        <p>Inicia sesión con tu usuario de administrador.</p>
+        <form id="form-login">
+            <label for="campo-login">Usuario</label>
+            <input id="campo-login" type="text" autocomplete="username" required>
+            <label for="campo-password">Contraseña</label>
+            <input id="campo-password" type="password" autocomplete="current-password" required>
+            <button type="submit">Entrar</button>
+        </form>
+        <p id="mensaje-login" class="mensaje" role="alert"></p>
+    </section>
+
+    <!-- VISTA 2: consulta de una ruta. Empieza oculta (atributo hidden). -->
+    <section id="vista-ruta" hidden>
+        <header class="barra">
+            <form id="form-ruta">
+                <label for="codigo-ruta">Código de ruta</label>
+                <input id="codigo-ruta" type="text" placeholder="Ej. PRUEBA-001" required>
+                <button type="submit">Ver ruta</button>
+            </form>
+            <div class="sesion">
+                <span id="texto-sesion"></span>
+                <button id="btn-salir" type="button">Cerrar sesión</button>
+            </div>
+        </header>
+
+        <div class="contenido">
+            <aside class="panel">
+                <p id="mensaje-ruta" class="mensaje" role="status"></p>
+                <p id="resumen" class="resumen"></p>
+                <ol id="lista-paradas" class="paradas"></ol>
+            </aside>
+            <div id="mapa"></div>
+        </div>
+    </section>
+
+    <!-- type="module" permite usar import/export entre archivos JS -->
+    <script type="module" src="./js/app.js"></script>
+</body>
+
+</html>
