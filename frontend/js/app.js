@@ -20,6 +20,7 @@ const resumen = $("resumen");
 const listaParadas = $("lista-paradas");
 const textoSesion = $("texto-sesion");
 const botonSalir = $("btn-salir");
+const campoApikey = $("campo-apikey");
 
 let promesaMapa = null;
 let temporizadorRefresco = null;
@@ -146,14 +147,19 @@ formLogin.addEventListener("submit", async (evento) => {
     evento.preventDefault(); // evita que el navegador recargue la pagina al enviar el formulario
     mostrar(mensajeLogin, "");
     try {
-        const { token, apikey } = await login(campoLogin.value.trim(), campoPassword.value);
-        if (!token || !apikey) {
-            throw new Error("El servidor no devolvió token y APIKey. Falta actualizar el backend (LoginResponseDTO).");
-        }
-        guardarSesion(token, apikey);
-        campoPassword.value = ""; // la contrasena no debe quedarse en el formulario
+        const { token } = await login(campoLogin.value.trim(), campoPassword.value);
+        if (!token) throw new Error("El servidor no devolvió el token.");
+        guardarSesion(token, campoApikey.value.trim()); // la APIKey la escribió el usuario
+
+        // Se comprueba YA la APIKey con una consulta protegida pequeña (el catálogo de documentos).
+        // Si es incorrecta el servidor responde 401 y se avisa aquí, no más adelante con una pantalla rota.
+        await apiGet("/api/documentos");
+
+        campoPassword.value = "";
+        campoApikey.value = ""; // ni la contraseña ni la clave deben quedarse en el formulario
         mostrarRutas();
     } catch (error) {
+        cerrarSesion(); // no dejar una sesión a medias (token guardado con una clave mala)
         mostrar(mensajeLogin, error.message, true);
     }
 });

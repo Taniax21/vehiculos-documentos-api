@@ -19,9 +19,10 @@ import com.utolima.vehiculosdocumentosapi.security.CustomAuthenticationEntryPoin
 import com.utolima.vehiculosdocumentosapi.security.JwtAuthenticationFilter;
 
 import lombok.RequiredArgsConstructor;
+
 @Configuration
-@EnableWebSecurity // activa la seguridad personalizada -- en cuanto existe este @Bean, Spring Boot DEJA de generar la contrasena aleatoria de antes
-@RequiredArgsConstructor
+@EnableWebSecurity
+@RequiredArgsConstructor // activa la seguridad personalizada -- en cuanto existe este @Bean, Spring Boot DEJA de generar la contrasena aleatoria de antes
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
@@ -31,19 +32,22 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+            // Activa CORS usando el bean corsConfigurationSource de abajo. Su filtro corre ANTES que el de JWT,
+            // así las peticiones "de reconocimiento" (preflight) del navegador, que no llevan token, no se rechazan.
+            .cors(Customizer.withDefaults())
             .csrf(csrf -> csrf.disable()) // API REST sin sesiones/cookies ni formularios HTML -- CSRF no aplica aqui
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // nunca guarda sesion: cada peticion se autentica sola, con su propio JWT
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/publico/**", "/api/auth/**").permitAll() // EXACTAMENTE lo que pide el PDF
-                .anyRequest().authenticated() // todo lo demas, Entrega 1 incluida, exige estar autenticado
+                .requestMatchers("/api/publico/**", "/api/auth/**").permitAll() // 1ro: valida el JWT
+                .anyRequest().authenticated() // 2do: valida el APIKey
             )
             .exceptionHandling(ex -> ex.authenticationEntryPoint(customAuthenticationEntryPoint))
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class) // 1ro: valida el JWT
-            .addFilterAfter(apiKeyFilter, JwtAuthenticationFilter.class);                          // 2do: valida el APIKey
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(apiKeyFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }
-    
+
     // Qué páginas web tienen permiso de llamar a esta API desde el navegador
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
@@ -61,5 +65,4 @@ public class SecurityConfig {
         fuente.registerCorsConfiguration("/**", config);
         return fuente;
     }
-    
 }

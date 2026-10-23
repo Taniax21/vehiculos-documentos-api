@@ -186,4 +186,10 @@ button {
         border-right: 0;
         border-top: 1px solid #ddd;
     }
+
+    .ayuda {
+        font-size: 12px;
+        color: #666;
+        margin: 0;
+    }
 }

@@ -23,9 +23,8 @@ public class PersonaMapper {
         if (usuario != null) {
             UsuarioResponseDTO usuarioDTO = new UsuarioResponseDTO();
             usuarioDTO.setLogin(usuario.getId().getLogin());
-            usuarioDTO.setApikey(usuario.getApikey());
-            usuarioDTO.setPassword(incluirPassword ? usuario.getPassword() : null);
-            dto.setUsuario(usuarioDTO);
+            usuarioDTO.setApikey(incluirPassword ? usuario.getApikey() : null); // antes salía siempre
+            usuarioDTO.setPassword(incluirPassword ? usuario.getPassword() : null);            dto.setUsuario(usuarioDTO);
         }
 
         return dto;
